@@ -10,16 +10,18 @@ use std::env;
 
 pub struct StatusMonitor {
     channel_id: ChannelId,
-    server_ip: String,
+    display_ip: String,
+    connect_ip: String,
     server_port: u16,
     last_message_id: Arc<RwLock<Option<MessageId>>>,
 }
 
 impl StatusMonitor {
-    pub fn new(channel_id: u64, server_ip: String, server_port: u16) -> Self {
+    pub fn new(channel_id: u64, display_ip: String, connect_ip: String, server_port: u16) -> Self {
         Self {
             channel_id: ChannelId::new(channel_id),
-            server_ip,
+            display_ip,
+            connect_ip,
             server_port,
             last_message_id: Arc::new(RwLock::new(None)),
         }
@@ -160,7 +162,7 @@ impl StatusMonitor {
                         Status: 🟢 Online\n\
                         Players: {}/{}\n\
                         Last Updated: {}",
-                        self.server_ip, self.server_port,
+                        self.display_ip, self.server_port,
                         info.online_players, info.max_players,
                         timestamp
                     )
@@ -172,7 +174,7 @@ impl StatusMonitor {
                         サーバー状態: 🟢 オンライン\n\
                         プレイヤー数: {}/{}\n\
                         最終更新: {}",
-                        self.server_ip, self.server_port,
+                        self.display_ip, self.server_port,
                         info.online_players, info.max_players,
                         timestamp
                     )
@@ -186,7 +188,7 @@ impl StatusMonitor {
                         Port: `{}`\n\
                         Status: 🔴 Offline\n\
                         Last Updated: {}",
-                        self.server_ip, self.server_port,
+                        self.display_ip, self.server_port,
                         timestamp
                     )
                 } else {
@@ -196,7 +198,7 @@ impl StatusMonitor {
                         ポート: `{}`\n\
                         サーバー状態: 🔴 オフライン\n\
                         最終更新: {}",
-                        self.server_ip, self.server_port,
+                        self.display_ip, self.server_port,
                         timestamp
                     )
                 }
@@ -206,7 +208,7 @@ impl StatusMonitor {
 
     async fn ping_server(&self) -> Result<ServerInfo, Box<dyn std::error::Error + Send + Sync>> {
         let socket = UdpSocket::bind("0.0.0.0:0").await?;
-        socket.connect(format!("127.0.0.1:{}", self.server_port)).await?;
+        socket.connect(format!("{}:{}", self.connect_ip, self.server_port)).await?;
 
         let mut packet = Vec::with_capacity(33);
         packet.push(0x01);
