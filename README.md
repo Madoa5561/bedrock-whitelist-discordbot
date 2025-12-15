@@ -1,6 +1,6 @@
 # Minecraft Bedrock Allowlist & Status Bot
 
-Minecraft Bedrock (統合版) サーバーのAllowlist管理とステータス表示を行うDiscordボットです。
+Minecraft Bedrock (統合版) サーバーのホワイトリスト管理とステータス表示を行うDiscordボットです。
 
 ## 機能
 
@@ -29,14 +29,20 @@ Minecraft Bedrock (統合版) サーバーのAllowlist管理とステータス�
    # Discordボットのトークン
    DISCORD_TOKEN=your_token_here
    
+   SERVER_PATH=../bedrock_server.exe
+   # Can be a directory (../) or full path to exe (../bedrock_server.exe)
+   
    # ステータスを表示するチャンネルID
    STATUS_CHANNEL_ID=123456789012345678
    
    # Allowlistファイルのパス（サーバーのallowlist.jsonを指定）
    ALLOWLIST_PATH=../allowlist.json
 
+   # Discord上に実際に表示されるIP
+   SERVER_IP=mc.example.org
+   
    # 監視対象のサーバーIPとポート（デフォルトは127.0.0.1:19132）
-   SERVER_IP=127.0.0.1
+   INTERNAL_IP=127.0.0.1
    SERVER_PORT=19132
 
    # 言語設定 (JP または EN)
@@ -71,4 +77,5 @@ Minecraft Bedrock (統合版) サーバーのAllowlist管理とステータス�
 ## ライセンス
 
 [MIT License](LICENSE)
+
 
