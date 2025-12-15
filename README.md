@@ -9,6 +9,7 @@ Minecraft Bedrock (統合版) サーバーのホワイトリスト管理とス�
 - **ステータス監視**: 指定したチャンネルにサーバーの状態（オンライン/オフライン、参加人数）をリアルタイムで表示します。30秒ごとに更新されます。
 - **Unconnected Ping 対応**: RakNetプロトコルを使用して、ゲーム内と同様の正確なステータスを取得します。
 - **多言語対応**: 環境変数で日本語（JP）と英語（EN）を切り替え可能です。
+- **windows専用**: 完全にwindows向けに作成されています
 
 ## 必要要件
 
@@ -67,7 +68,7 @@ Minecraft Bedrock (統合版) サーバーのホワイトリスト管理とス�
   - `main.rs`: エントリーポイント、環境変数の読み込み
   - `commands.rs`: スラッシュコマンドとModalの処理
   - `status.rs`: サーバーステータスの監視とPing処理（UDP/RakNet）
-  - `allowlist.rs`: allowlist.jsonの読み書き管理
+  - `server_cotroller.rs`: stdinを用いたホワイトリストの追加
 
 ## 技術的詳細
 
@@ -78,6 +79,7 @@ Minecraft Bedrock (統合版) サーバーのホワイトリスト管理とス�
 ## ライセンス
 
 [MIT License](LICENSE)
+
 
 
 
