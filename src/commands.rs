@@ -3,49 +3,76 @@ use serenity::all::{
     CreateInteractionResponseMessage, CreateActionRow, CreateInputText, InputTextStyle,
     CreateModal, ModalInteraction,
 };
-use crate::allowlist::AllowlistManager;
+use crate::server_controller::ServerController;
 use std::sync::Arc;
 use std::env;
 
-pub fn register() -> CreateCommand {
-    let lang = env::var("LANGUAGE").unwrap_or_else(|_| "JP".to_string());
-    let description = if lang.to_uppercase() == "EN" {
-        "Register to the Minecraft server allowlist"
-    } else {
-        "Minecraftサーバーのallowlistに登録する"
-    };
-
-    CreateCommand::new("server")
-        .description(description)
+pub fn register(name: &str, description: &str) -> CreateCommand {
+    CreateCommand::new(name).description(description)
 }
 
-pub async fn handle_command(ctx: &Context, interaction: &CommandInteraction, _allowlist: Arc<AllowlistManager>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn handle_command(
+    ctx: &Context, 
+    interaction: &CommandInteraction, 
+    server_controller: Arc<ServerController>
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let lang = env::var("LANGUAGE").unwrap_or_else(|_| "JP".to_string());
     let is_en = lang.to_uppercase() == "EN";
 
-    let (title, label, placeholder) = if is_en {
-        ("Server Registration", "Game ID", "Enter your Game ID")
-    } else {
-        ("サーバー登録", "ゲームID", "ゲームIDを入力してください")
-    };
+    match interaction.data.name.as_str() {
+        "server" => {
+            let (title, label, placeholder) = if is_en {
+                ("Server Registration", "Game ID", "Enter your Game ID")
+            } else {
+                ("サーバー登録", "ゲームID", "ゲームIDを入力してください")
+            };
 
-    let modal = CreateModal::new("server_modal", title)
-        .components(vec![
-            CreateActionRow::InputText(
-                CreateInputText::new(InputTextStyle::Short, label, "game_id")
-                    .placeholder(placeholder)
-                    .required(true)
-            )
-        ]);
+            let modal = CreateModal::new("server_modal", title)
+                .components(vec![
+                    CreateActionRow::InputText(
+                        CreateInputText::new(InputTextStyle::Short, label, "game_id")
+                            .placeholder(placeholder)
+                            .required(true)
+                    )
+                ]);
 
-    interaction
-        .create_response(&ctx.http, CreateInteractionResponse::Modal(modal))
-        .await?;
+            interaction
+                .create_response(&ctx.http, CreateInteractionResponse::Modal(modal))
+                .await?;
+        }
+        "restart" => {
+            // Check permissions here if needed (e.g., admin only)
+            // For now assuming anyone can restart or it's restricted by Discord permissions setup
+            
+            let msg = if is_en { "🔄 Restarting server..." } else { "🔄 サーバーを再起動しています..." };
+            interaction
+                .create_response(
+                    &ctx.http, 
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new().content(msg).ephemeral(false)
+                    )
+                )
+                .await?;
+
+            // Performing restart in a separate task to not block the gateway
+            let controller = Arc::clone(&server_controller);
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = controller.restart() {
+                    eprintln!("Failed to restart server: {}", e);
+                }
+            });
+        }
+        _ => {}
+    }
 
     Ok(())
 }
 
-pub async fn handle_modal(ctx: &Context, interaction: &ModalInteraction, allowlist: Arc<AllowlistManager>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn handle_modal(
+    ctx: &Context, 
+    interaction: &ModalInteraction, 
+    server_controller: Arc<ServerController>
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let lang = env::var("LANGUAGE").unwrap_or_else(|_| "JP".to_string());
     let is_en = lang.to_uppercase() == "EN";
 
@@ -75,26 +102,13 @@ pub async fn handle_modal(ctx: &Context, interaction: &ModalInteraction, allowli
         return Ok(());
     }
 
-    match allowlist.add_entry(game_id.clone()).await {
-        Ok(true) => {
-            let msg = if is_en {
-                format!("✅ `{}` has been added to the allowlist!", game_id)
+    // Send allowlist command to server stdin
+    match server_controller.send_command(&format!("allowlist add {}", game_id)) {
+        Ok(_) => {
+             let msg = if is_en {
+                format!("✅ Sent command to add `{}` to allowlist!", game_id)
             } else {
-                format!("✅ `{}` をallowlistに追加しました!", game_id)
-            };
-            let response = CreateInteractionResponseMessage::new()
-                .content(msg)
-                .ephemeral(true);
-            
-            interaction
-                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
-                .await?;
-        }
-        Ok(false) => {
-            let msg = if is_en {
-                format!("⚠️ `{}` is already in the allowlist.", game_id)
-            } else {
-                format!("⚠️ `{}` は既にallowlistに登録されています。", game_id)
+                format!("✅ `{}` をallowlistに追加するコマンドを送信しました!", game_id)
             };
             let response = CreateInteractionResponseMessage::new()
                 .content(msg)
@@ -105,11 +119,11 @@ pub async fn handle_modal(ctx: &Context, interaction: &ModalInteraction, allowli
                 .await?;
         }
         Err(e) => {
-            eprintln!("Error adding to allowlist: {}", e);
-            let msg = if is_en {
-                "❌ An error occurred while adding to the allowlist."
+            eprintln!("Error sending command: {}", e);
+             let msg = if is_en {
+                "❌ Failed to send command to server."
             } else {
-                "❌ allowlistへの追加中にエラーが発生しました。"
+                "❌ サーバーへのコマンド送信に失敗しました。"
             };
             let response = CreateInteractionResponseMessage::new()
                 .content(msg)
