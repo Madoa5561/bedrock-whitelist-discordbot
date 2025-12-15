@@ -51,10 +51,7 @@ Minecraft Bedrock (統合版) サーバーのAllowlist管理とステータス�
 4. **実行**
    ```bash
    # 通常実行
-   ./target/release/allowbot
-
-   # または起動スクリプトを使用（Windows）
-   start_bot.bat
+   cargo run --release
    ```
 
 ## ディレクトリ構造
@@ -74,3 +71,4 @@ Minecraft Bedrock (統合版) サーバーのAllowlist管理とステータス�
 ## ライセンス
 
 [MIT License](LICENSE)
+
