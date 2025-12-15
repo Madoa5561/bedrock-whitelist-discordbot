@@ -30,8 +30,8 @@ Minecraft Bedrock (統合版) サーバーのホワイトリスト管理とス�
    # Discordボットのトークン
    DISCORD_TOKEN=your_token_here
    
-   SERVER_PATH=../bedrock_server.exe
    # Can be a directory (../) or full path to exe (../bedrock_server.exe)
+   SERVER_PATH=../bedrock_server.exe
    
    # ステータスを表示するチャンネルID
    STATUS_CHANNEL_ID=123456789012345678
@@ -78,6 +78,7 @@ Minecraft Bedrock (統合版) サーバーのホワイトリスト管理とス�
 ## ライセンス
 
 [MIT License](LICENSE)
+
 
 
 
