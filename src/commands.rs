@@ -1,139 +1,110 @@
-use serenity::all::{
-    CommandInteraction, Context, CreateCommand, CreateInteractionResponse,
-    CreateInteractionResponseMessage, CreateActionRow, CreateInputText, InputTextStyle,
-    CreateModal, ModalInteraction,
-};
-use crate::server_controller::ServerController;
-use std::sync::Arc;
-use std::env;
+use std::process::{Stdio, Child, ChildStdin};
+use std::sync::{Arc, Mutex};
+use std::io::Write;
+use std::process::Command;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+use tokio::time::{sleep, Duration};
 
-pub fn register(name: &str, description: &str) -> CreateCommand {
-    CreateCommand::new(name).description(description)
+#[derive(Clone)]
+pub struct ServerController {
+    process: Arc<Mutex<Option<Child>>>,
+    stdin: Arc<Mutex<Option<ChildStdin>>>,
+    server_path: String,
 }
 
-pub async fn handle_command(
-    ctx: &Context, 
-    interaction: &CommandInteraction, 
-    server_controller: Arc<ServerController>
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let lang = env::var("LANGUAGE").unwrap_or_else(|_| "JP".to_string());
-    let is_en = lang.to_uppercase() == "EN";
-
-    match interaction.data.name.as_str() {
-        "server" => {
-            let (title, label, placeholder) = if is_en {
-                ("Server Registration", "Game ID", "Enter your Game ID")
-            } else {
-                ("サーバー登録", "ゲームID", "ゲームIDを入力してください")
-            };
-
-            let modal = CreateModal::new("server_modal", title)
-                .components(vec![
-                    CreateActionRow::InputText(
-                        CreateInputText::new(InputTextStyle::Short, label, "game_id")
-                            .placeholder(placeholder)
-                            .required(true)
-                    )
-                ]);
-
-            interaction
-                .create_response(&ctx.http, CreateInteractionResponse::Modal(modal))
-                .await?;
+impl ServerController {
+    pub fn new(server_path: String) -> Self {
+        Self {
+            process: Arc::new(Mutex::new(None)),
+            stdin: Arc::new(Mutex::new(None)),
+            server_path,
         }
-        "restart" => {
-            // Check permissions here if needed (e.g., admin only)
-            // For now assuming anyone can restart or it's restricted by Discord permissions setup
-            
-            let msg = if is_en { "🔄 Restarting server..." } else { "🔄 サーバーを再起動しています..." };
-            interaction
-                .create_response(
-                    &ctx.http, 
-                    CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::new().content(msg).ephemeral(false)
-                    )
-                )
-                .await?;
-
-            // Performing restart in a separate task to not block the gateway
-            let controller = Arc::clone(&server_controller);
-            tokio::task::spawn_blocking(move || {
-                if let Err(e) = controller.restart() {
-                    eprintln!("Failed to restart server: {}", e);
-                }
-            });
-        }
-        _ => {}
     }
 
-    Ok(())
-}
-
-pub async fn handle_modal(
-    ctx: &Context, 
-    interaction: &ModalInteraction, 
-    server_controller: Arc<ServerController>
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let lang = env::var("LANGUAGE").unwrap_or_else(|_| "JP".to_string());
-    let is_en = lang.to_uppercase() == "EN";
-
-    let game_id = interaction
-        .data
-        .components
-        .first()
-        .and_then(|row| row.components.first())
-        .and_then(|component| {
-            if let serenity::all::ActionRowComponent::InputText(input) = component {
-                input.value.clone()
-            } else {
-                None
-            }
-        })
-        .unwrap_or_default();
-
-    if game_id.is_empty() {
-        let msg = if is_en { "❌ Please enter a Game ID." } else { "❌ ゲームIDを入力してください。" };
-        let response = CreateInteractionResponseMessage::new()
-            .content(msg)
-            .ephemeral(true);
+    pub fn start(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut process_guard = self.process.lock().unwrap();
+        if process_guard.is_some() {
+            println!("Server is already running.");
+            return Ok(());
+        }
+        let path = std::path::Path::new(&self.server_path);
+        let (work_dir, exe_path) = if path.is_file() {
+            (
+                path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf(),
+                path.to_path_buf()
+            )
+        } else {
+            (
+                path.to_path_buf(),
+                path.join("bedrock_server.exe")
+            )
+        };
+        println!("Starting {:?} from {:?}", exe_path, work_dir);
         
-        interaction
-            .create_response(&ctx.http, CreateInteractionResponse::Message(response))
-            .await?;
-        return Ok(());
+        let mut cmd = Command::new(&exe_path);
+        cmd.current_dir(&work_dir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
+
+        #[cfg(windows)]
+        cmd.creation_flags(0x00000200);
+        let mut child = cmd.spawn()?;
+        let stdin = child.stdin.take().ok_or("Failed to open stdin")?;
+        *process_guard = Some(child);
+        *self.stdin.lock().unwrap() = Some(stdin);
+
+        println!("Bedrock Server started successfully.");
+        Ok(())
     }
 
-    // Send allowlist command to server stdin
-    match server_controller.send_command(&format!("allowlist add {}", game_id)) {
-        Ok(_) => {
-             let msg = if is_en {
-                format!("✅ Sent command to add `{}` to allowlist!", game_id)
-            } else {
-                format!("✅ `{}` をallowlistに追加するコマンドを送信しました!", game_id)
-            };
-            let response = CreateInteractionResponseMessage::new()
-                .content(msg)
-                .ephemeral(true);
-            
-            interaction
-                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
-                .await?;
+    pub fn stop(&self) {
+        println!("Stopping server...");
+        if let Err(e) = self.send_command("stop") {
+            eprintln!("Failed to send stop command: {}", e);
         }
-        Err(e) => {
-            eprintln!("Error sending command: {}", e);
-             let msg = if is_en {
-                "❌ Failed to send command to server."
-            } else {
-                "❌ サーバーへのコマンド送信に失敗しました。"
-            };
-            let response = CreateInteractionResponseMessage::new()
-                .content(msg)
-                .ephemeral(true);
-            
-            interaction
-                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
-                .await?;
+        let mut process_guard = self.process.lock().unwrap();
+        if let Some(mut child) = process_guard.take() {
+            match child.wait() {
+                Ok(status) => println!("Server exited with status: {}", status),
+                Err(e) => eprintln!("Error waiting for server exit: {}", e),
+            }
         }
+        
+        // Clear stdin
+        *self.stdin.lock().unwrap() = None;
+        println!("Server stopped.");
     }
 
-    Ok(())
+    pub fn restart(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.stop();
+        // Give a small buffer time if needed, though wait() should handle it
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        self.start()
+    }
+
+    pub fn send_command(&self, cmd: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut stdin_guard = self.stdin.lock().unwrap();
+        if let Some(stdin) = stdin_guard.as_mut() {
+            writeln!(stdin, "{}", cmd)?;
+            stdin.flush()?;
+            Ok(())
+        } else {
+            Err("Server stdin is not available (server not running?)".into())
+        }
+    }
+    
+    pub fn is_running(&self) -> bool {
+        let mut process_guard = self.process.lock().unwrap();
+        if let Some(child) = process_guard.as_mut() {
+             match child.try_wait() {
+                Ok(Some(_)) => false, // Exited
+                Ok(None) => true,     // Still running
+                Err(_) => false,
+            }
+        } else {
+            false
+        }
+    }
 }
