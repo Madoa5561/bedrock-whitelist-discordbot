@@ -29,18 +29,19 @@ impl Handler {
 impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         println!("{} is connected!", ready.user.name);
-        
-        // Register commands
         let lang = env::var("LANGUAGE").unwrap_or_else(|_| "JP".to_string());
         let is_en = lang.to_uppercase() == "EN";
-
         let server_desc = if is_en { "Register to the Minecraft server allowlist" } else { "Minecraftサーバーのallowlistに登録する" };
         let restart_desc = if is_en { "Restart the Minecraft server" } else { "Minecraftサーバーを再起動する" };
 
+        // -------------------------
+        // 現在restartコマンドの実行権限は限定されていません、everyoneに実行できるようになっています
+        // あなたがもしこのコードをそのまま使用する場合は **絶対に** restartを削除するか権限を限定するようにコードを編集してください
         let commands = vec![
             commands::register("server", server_desc),
             commands::register("restart", restart_desc),
         ];
+        // -------------------------
 
         if let Err(e) = Command::set_global_commands(&ctx.http, commands).await {
             eprintln!("Error registering commands: {}", e);
@@ -74,26 +75,15 @@ impl EventHandler for Handler {
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
-    
     let token = env::var("DISCORD_TOKEN").expect("Expected DISCORD_TOKEN in environment");
     let channel_id = env::var("STATUS_CHANNEL_ID")
         .expect("Expected STATUS_CHANNEL_ID in environment")
         .parse::<u64>()
         .expect("STATUS_CHANNEL_ID must be a valid u64");
-    
-    // Determine server directory (parent of bot)
-    // Assuming the bot is running in its own directory, the server is in the parent.
-    // OR, if the user runs the bot from the server directory, use current dir.
-    // The user's providing `start_bot.bat` is likely inside `Allowbot/`.
-    // So server is `../`.
     let server_path = env::var("SERVER_PATH").unwrap_or_else(|_| "../".to_string());
-
     let server_controller = Arc::new(ServerController::new(server_path));
-    
-    // Start the Minecraft Server
     if let Err(e) = server_controller.start() {
         eprintln!("Failed to start bedrock_server: {}", e);
-        // We might want to exit here if the server is critical
         return;
     }
 
@@ -119,8 +109,25 @@ async fn main() {
         .event_handler(Handler::new(Arc::clone(&server_controller), status_monitor))
         .await
         .expect("Error creating client");
-
-    // Handle CTRL+C for graceful shutdown
+    {
+        let console_controller = Arc::clone(&server_controller);
+        std::thread::spawn(move || {
+            let stdin = std::io::stdin();
+            let mut line = String::new();
+            loop {
+                if stdin.read_line(&mut line).is_err() {
+                    break;
+                }
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    if let Err(e) = console_controller.send_command(trimmed) {
+                        eprintln!("Failed to send command: {}", e);
+                    }
+                }
+                line.clear();
+            }
+        });
+    }
     let shutdown_signal = async {
         if let Err(e) = tokio::signal::ctrl_c().await {
             eprintln!("Failed to listen for Ctrl+C: {}", e);
@@ -132,8 +139,6 @@ async fn main() {
     };
 
     println!("Starting bot and server monitor...");
-    
-    // Run client and signal handler concurrently
     tokio::select! {
         result = client.start() => {
             if let Err(why) = result {
