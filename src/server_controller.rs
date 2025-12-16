@@ -2,6 +2,8 @@ use std::process::{Stdio, Child, ChildStdin};
 use std::sync::{Arc, Mutex};
 use std::io::Write;
 use std::process::Command;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use tokio::time::{sleep, Duration};
 
 #[derive(Clone)]
@@ -26,7 +28,6 @@ impl ServerController {
             println!("Server is already running.");
             return Ok(());
         }
-
         let path = std::path::Path::new(&self.server_path);
         let (work_dir, exe_path) = if path.is_file() {
             (
@@ -34,27 +35,25 @@ impl ServerController {
                 path.to_path_buf()
             )
         } else {
-            // Assume directory
             (
                 path.to_path_buf(),
                 path.join("bedrock_server.exe")
             )
         };
-
         println!("Starting {:?} from {:?}", exe_path, work_dir);
         
-        let mut child = Command::new(&exe_path)
-            .current_dir(&work_dir)
+        let mut cmd = Command::new(&exe_path);
+        cmd.current_dir(&work_dir)
             .stdin(Stdio::piped())
-            .stdout(Stdio::inherit()) // Pipe stdout to parent to see logs
-            .stderr(Stdio::inherit())
-            .spawn()?;
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
 
+        #[cfg(windows)]
+        cmd.creation_flags(0x00000200);
+        let mut child = cmd.spawn()?;
         let stdin = child.stdin.take().ok_or("Failed to open stdin")?;
-
         *process_guard = Some(child);
         *self.stdin.lock().unwrap() = Some(stdin);
-
         println!("Bedrock Server started successfully.");
         Ok(())
     }
@@ -64,8 +63,6 @@ impl ServerController {
         if let Err(e) = self.send_command("stop") {
             eprintln!("Failed to send stop command: {}", e);
         }
-
-        // Wait for process to exit
         let mut process_guard = self.process.lock().unwrap();
         if let Some(mut child) = process_guard.take() {
             match child.wait() {
@@ -73,15 +70,11 @@ impl ServerController {
                 Err(e) => eprintln!("Error waiting for server exit: {}", e),
             }
         }
-        
-        // Clear stdin
         *self.stdin.lock().unwrap() = None;
         println!("Server stopped.");
     }
-
     pub fn restart(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.stop();
-        // Give a small buffer time if needed, though wait() should handle it
         std::thread::sleep(std::time::Duration::from_secs(2));
         self.start()
     }
@@ -91,7 +84,6 @@ impl ServerController {
         if let Some(stdin) = stdin_guard.as_mut() {
             writeln!(stdin, "{}", cmd)?;
             stdin.flush()?;
-            // println!("Sent command: {}", cmd); // Debug log
             Ok(())
         } else {
             Err("Server stdin is not available (server not running?)".into())
