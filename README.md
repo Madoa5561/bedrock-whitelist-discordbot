@@ -71,7 +71,7 @@ Minecraft Bedrock (統合版) サーバーのホワイトリスト管理とス�
   - `status.rs`: サーバーステータスの監視とPing処理（UDP/RakNet）
   - `server_cotroller.rs`: stdinを用いたホワイトリストの追加
 
-## 技術的詳細
+## 依存＆詳細
 
 - **Serenity**: Discord APIとの対話に使用
 - **Tokio**: 非同期ランタイム
@@ -80,6 +80,7 @@ Minecraft Bedrock (統合版) サーバーのホワイトリスト管理とス�
 ## ライセンス
 
 [MIT License](LICENSE)
+
 
 
 
